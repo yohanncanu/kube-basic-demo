@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: blog
+  name: blog
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: blog
+  template:
+    metadata:
+      labels:
+        app: blog
+    spec:
+      containers:
+      - name: blog
+        image: gcr.io/winzana-workshop/knative-kong/blog:v1.0.6
+        command: ['node', './dist/apps/api/blog/main.js']
+        env:
+        - name: port
+          value: '3333'
+        - name: NODE_ENV
+          value: 'production'
+        ports:
+        - containerPort: 3333
+          name: web
+          protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: blog
+  name: blog
+spec:
+  ports:
+  - port: 3333
+  selector:
+    app: blog

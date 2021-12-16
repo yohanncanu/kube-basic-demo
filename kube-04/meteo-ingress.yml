@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-meteo
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - www.demo3.example.com
+    secretName: demo3.example.com
+  rules:
+  - host: meteo.demo3.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: meteo
+            port:
+              number: 3333
