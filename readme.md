@@ -4,7 +4,10 @@
 
 ## kube-01
 
+learn basics about network and service exposition
+
 ```bash 
+cd kube-01
 ## deploy some pods
 cat << EOF > foo-pod.yml
 kind: Pod
@@ -37,7 +40,7 @@ spec:
 EOF
 
 kubectl apply -f .
-# test forwarding port
+# test forwarding port to 30080
 kubectl port-forward pod/foo-app :5678
 
 # create a service to go with it
@@ -95,11 +98,14 @@ spec:
             port:
               number: 5678
 EOF
+# install ingress controller
+# test http:/kubedev.local/
 ```
 
 ## kube-02
 
 ```bash 
+# use a dockerfile to 
 cd kube-02
 cat << EOF > Dockerfile
 FROM php:5-apache
@@ -120,45 +126,19 @@ EOF
 docker build -t myapache:1.0 .
 docker tag myapache:1.0 k3d-registry.localhost:5000/myapache:1.0
 docker push k3d-registry.localhost:5000/myapache:1.0
-
+#if registry is not working
+k3d image import k3d-registry.localhost:5000/myapache:1.0 -c local-dev
 
 k create deployment php-apache --image=k3d-registry.localhost:5000/myapache:1.0 --dry-run=client -o yaml > myapache-deploy.yml
 # add ports --> 80 + resource limits + strategy
 k apply -f .
 
-# test dns
-cat << EOF > pod.yml
-apiVersion: v1
-kind: Pod
-metadata:
-    name: busybox
-spec:
-    containers:
-    - image: busybox
-      command:
-          - sleep
-          - "3600"
-      imagePullPolicy: IfNotPresent
-      name: busybox
-    restartPolicy: Always
-EOF
-k create -f pod.yml
-kubectl exec -it busybox -- ping -c1 k3d-registry.localhost
-kubectl run -it --rm --restart=Never busybox --image=busybox:1.28 -- nslookup kubernetes.default
-kubectl run -it --rm --restart=Never busybox --image=busybox:1.28 -- nslookup www.google.com
-# https://rancher.com/docs/rancher/v2.5/en/troubleshooting/dns/
+
 
 kubectl expose rc nginx --port=80 --target-port=8000
 
-
-kubectl autoscale deployment/php-apache --min=10 --max=15 --cpu-percent=80
-
-
-
 # check horizontal scaling
 # https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale-walkthrough/
-
-
 
 # create a deployment
 k create deployment php-apache --image=k3d-registry.localhost:5000/php-apache:1.0 --dry-run=client -o yaml > php-apache-deploy.yml
@@ -213,6 +193,206 @@ kubectl create configmap my-config --from-file=config --dry-run=client -o yaml
 ```bash 
 cd kube-04
 
+cat << EOF > blog-deploy.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: blog
+  name: blog
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: blog
+  template:
+    metadata:
+      labels:
+        app: blog
+    spec:
+      containers:
+      - name: blog
+        image: gcr.io/winzana-workshop/knative-kong/blog:v1.0.6
+        command: ['node', './dist/apps/api/blog/main.js']
+        env:
+        - name: port
+          value: '3333'
+        - name: NODE_ENV
+          value: 'production'
+        ports:
+        - containerPort: 3333
+          name: web
+          protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: blog
+  name: blog
+spec:
+  ports:
+  - port: 3333
+  selector:
+    app: blog
+EOF
 
+cat << EOF > blog-ingress.yml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-blog
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - www.demo3.example.com
+    secretName: demo3.example.com
+  rules:
+  - host: blog.demo3.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: blog
+            port:
+              number: 3333
+EOF
+
+cat << EOF > front-deploy.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: front
+  name: front
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: front
+  template:
+    metadata:
+      labels:
+        app: front
+    spec:
+      containers:
+      - name: front
+        image: gcr.io/winzana-workshop/knative-kong/front:v1.0.5
+        ports:
+        - containerPort: 8080
+          name: web
+          protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: front
+  name: front
+spec:
+  ports:
+  - port: 8080
+  selector:
+    app: front
+EOF
+
+cat << EOF > front-ingress.yml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-front
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - www.demo3.example.com
+    secretName: demo3.example.com
+  rules:
+  - host: www.demo3.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: front
+            port:
+              number: 8080
+EOF
+
+cat << EOF > meteo-deploy.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: meteo
+  name: meteo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: meteo
+  template:
+    metadata:
+      labels:
+        app: meteo
+    spec:
+      containers:
+      - name: meteo
+        image: gcr.io/winzana-workshop/knative-kong/meteo:v1.0.6
+        command: ['node', './dist/apps/api/meteo/main.js']
+        env:
+        - name: port
+          value: '3333'
+        - name: NODE_ENV
+          value: 'production'
+        ports:
+        - containerPort: 3333
+          name: web
+          protocol: TCP
+------
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: meteo
+  name: meteo
+spec:
+  ports:
+  - port: 3333
+  selector:
+    app: meteo
+EOF
+
+cat << EOF > meteo-ingress.yml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-meteo
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - www.demo3.example.com
+    secretName: demo3.example.com
+  rules:
+  - host: meteo.demo3.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: meteo
+            port:
+              number: 3333
+ EOF
+ 
+ k apply -f .
+ https://www.demo3.example.com
 ```
 
